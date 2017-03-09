@@ -1,0 +1,55 @@
+#!/bin/bash
+function doesUserExist {
+	if id "$1" > /dev/null 2>&1; then
+		return true
+	else
+		return false
+	fi
+}
+
+echo "Preparing easy-rsa..."
+echo "export KEY_COUNTRY=\"$EASYRSA-COUNTRY\"" >> /etc/openvpn/easy-rsa/vars
+echo "export KEY_PROVINCE=\"$EASYRSA-PROVINCE\"" >> /etc/openvpn/easy-rsa/vars
+echo "export KEY_COUNTRY=\"$EASYRSA-CITY\"" >> /etc/openvpn/easy-rsa/vars
+echo "export KEY_COUNTRY=\"$EASYRSA-ORG\"" >> /etc/openvpn/easy-rsa/vars
+echo "export KEY_COUNTRY=\"$EASYRSA-EMAIL\"" >> /etc/openvpn/easy-rsa/vars
+
+cd /etc/openvpn/easy-rsa
+mkdir keys
+touch keys/index.txt
+echo 01 > keys/serial
+. ./vars
+./clean-all
+
+echo "Build root certificate..."
+export EASY_RSA="${EASY_RSA:-.}"
+"$EASY_RSA/pkitool" --initca
+
+echo "Build server certificate..."
+"$EASY_RSA/pkitool" --server server
+
+echo "Build diffie hellman parameters..."
+./build-dh 
+
+# todo: create certificate for each user
+"$EASY_RSA/pkitool" test # test == username
+
+echo "Search and synchronize users with config..."
+userLoop=true
+userCount=1
+while [ "$userLoop" = true ]
+do
+	user="OPENVPN_USER_$userCount"
+	pass="OPENVPN_PASS_$userCount"
+
+	if ([ -z "$user" ] || [ -z "$pass" ]) ; then
+		userLoop=false
+		continue
+	fi
+
+	# todo: check with doesUserExist if user exists and add user ... also check
+	# certificates and create new only if not already build
+
+	echo "Adding user $user..."
+	useradd "$user" -p $pass
+done
