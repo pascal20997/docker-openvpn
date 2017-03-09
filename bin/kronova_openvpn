@@ -1,55 +1,77 @@
 #!/bin/bash
 function doesUserExist {
 	if id "$1" > /dev/null 2>&1; then
-		return true
+		return 1
 	else
-		return false
+		return 0
 	fi
 }
 
-echo "Preparing easy-rsa..."
-echo "export KEY_COUNTRY=\"$EASYRSA-COUNTRY\"" >> /etc/openvpn/easy-rsa/vars
-echo "export KEY_PROVINCE=\"$EASYRSA-PROVINCE\"" >> /etc/openvpn/easy-rsa/vars
-echo "export KEY_COUNTRY=\"$EASYRSA-CITY\"" >> /etc/openvpn/easy-rsa/vars
-echo "export KEY_COUNTRY=\"$EASYRSA-ORG\"" >> /etc/openvpn/easy-rsa/vars
-echo "export KEY_COUNTRY=\"$EASYRSA-EMAIL\"" >> /etc/openvpn/easy-rsa/vars
-
 cd /etc/openvpn/easy-rsa
-mkdir keys
-touch keys/index.txt
-echo 01 > keys/serial
-. ./vars
-./clean-all
 
-echo "Build root certificate..."
-export EASY_RSA="${EASY_RSA:-.}"
-"$EASY_RSA/pkitool" --initca
+if [ -f "/INITIALIZED_OPENVPN" ]; then
+	echo "Initialize configs..."
+	echo "Preparing easy-rsa..."
+	echo "export KEY_COUNTRY=\"$EASYRSA-COUNTRY\"" >> /etc/openvpn/easy-rsa/vars
+	echo "export KEY_PROVINCE=\"$EASYRSA-PROVINCE\"" >> /etc/openvpn/easy-rsa/vars
+	echo "export KEY_COUNTRY=\"$EASYRSA-CITY\"" >> /etc/openvpn/easy-rsa/vars
+	echo "export KEY_COUNTRY=\"$EASYRSA-ORG\"" >> /etc/openvpn/easy-rsa/vars
+	echo "export KEY_COUNTRY=\"$EASYRSA-EMAIL\"" >> /etc/openvpn/easy-rsa/vars
 
-echo "Build server certificate..."
-"$EASY_RSA/pkitool" --server server
+	mkdir keys
+	touch keys/index.txt
+	echo 01 > keys/serial
+	. ./vars
+	./clean-all
 
-echo "Build diffie hellman parameters..."
-./build-dh 
+	echo "Build root certificate..."
+	export EASY_RSA="${EASY_RSA:-.}"
+	"$EASY_RSA/pkitool" --initca
 
-# todo: create certificate for each user
-"$EASY_RSA/pkitool" test # test == username
+	echo "Build server certificate..."
+	"$EASY_RSA/pkitool" --server server
+
+	echo "Build diffie hellman parameters..."
+	./build-dh
+
+	touch "/INITIALIZED_OPENVPN"
+else
+	echo "Configs already initialized. If you want to reinit remove the file /INITIALIZED_OPENVPN from container!"
+fi
 
 echo "Search and synchronize users with config..."
-userLoop=true
+userLoop=1
 userCount=1
-while [ "$userLoop" = true ]
+while [ "$userLoop" ]
 do
 	user="OPENVPN_USER_$userCount"
 	pass="OPENVPN_PASS_$userCount"
 
-	if ([ -z "$user" ] || [ -z "$pass" ]) ; then
-		userLoop=false
+	if ([ -z $(env | grep ^$user\=) ] || [ -z $(env | grep ^$pass\=) ]); then
+		userLoop=0
 		continue
 	fi
 
-	# todo: check with doesUserExist if user exists and add user ... also check
-	# certificates and create new only if not already build
+	echo "Checking user $user..."
+	if doesUserExist $user; then
+		echo "Adding user $user..."
+		useradd "$user" -p $pass
+	else
+		echo "User existing."
+	fi
 
-	echo "Adding user $user..."
-	useradd "$user" -p $pass
+	echo "Checking user certificates for $user..."
+	certificatePath="/etc/openvpn/easy-rsa/keys"
+	certificateName="user_cert_$user"
+
+	if ([ -f "$certificatePath/$certificateName.crt" ] && [ -f "$certificatePath/$certificateName.csr" ] && [ -f "$certificatePath/$certificateName.key" ]); then
+		echo "Certificates existing."
+	else
+		"$EASY_RSA/pkitool" $certificateName
+	fi
+	userCount=$((userCount + 1))
 done
+
+# todo: add hooks and start openvpn at different ports (default configs for 443 TCP; 1194 UDP)
+
+exit
