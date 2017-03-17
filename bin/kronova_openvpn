@@ -7,13 +7,47 @@ function doesUserExist {
 	fi
 }
 
-dockerConfigsPath="/root/kronovanet_docker"
-if [ ! -d "$dockerConfigsPath" ]; then
+function generateUserConfig {
+	echo "" > /tmp/udp1194.conf
+	echo "client" >> /tmp/udp1194.conf
+	echo "tls-client" >> /tmp/udp1194.conf
+	echo "nobind" >> /tmp/udp1194.conf
+	echo "ca ./ca.crt" >> /tmp/udp1194.conf
+	echo "cert ./user_cert_$1.crt" >> /tmp/udp1194.conf
+	echo "key ./user_cert_$1.key" >> /tmp/udp1194.conf
+	echo "comp-lzo" >> /tmp/udp1194.conf
+	echo "persist-key" >> /tmp/udp1194.conf
+	echo "persist-tun" >> /tmp/udp1194.conf
+	echo "cipher AES-256-CBC" >> /tmp/udp1194.conf
+	echo "auth SHA512" >> /tmp/udp1194.conf
+	echo "verb 3" >> /tmp/udp1194.conf
+    cp /tmp/udp1194.conf /tmp/tcp443.conf
+	
+	echo "dev tun1" >> /tmp/udp1194.conf
+	echo "proto udp" >> /tmp/udp1194.conf
+	echo "remote ${OPENVPN_HOSTNAME} 1194" >> /tmp/udp1194.conf
+
+	echo "dev tun2" >> /tmp/tcp443.conf
+	echo "proto tcp" >> /tmp/tcp443.conf
+	echo "remote ${OPENVPN_HOSTNAME} 443" >> /tmp/tcp443.conf
+}
+
+dockerConfigsPath="/opt/kronovanet_docker"
+if [ ! -d "$dockerConfigsPath/hook" ]; then
   echo "Creating folder for kronovanet docker container..."
-  mkdir -p $dockerConfigsPath
+  mkdir -p "$dockerConfigsPath/hook"
 fi
 
 cd /etc/openvpn/easy-rsa
+
+echo "Searching for hook in $dockerConfigsPath/hook/pre_init.sh"
+if [ -f "$dockerConfigsPath/hook/pre_init.sh" ]; then
+	echo "Execute hook..."
+	chmod +x $dockerConfigsPath/hook/pre_init.sh
+	$dockerConfigsPath/hook/pre_init.sh
+else
+	echo "No hook file given, continue..."
+fi
 
 if [ ! -f "$dockerConfigsPath/INITIALIZED_OPENVPN" ]; then
 	echo "Initialize configs..."
@@ -33,10 +67,10 @@ if [ ! -f "$dockerConfigsPath/INITIALIZED_OPENVPN" ]; then
 	./clean-all
 
 	echo "Build root certificate..."
-	./pkitool --initca
+	./pkitool --keysize 2048 --initca
 
 	echo "Build server certificate..."
-	./pkitool --server server
+	./pkitool --keysize 2048 --server server
 
 	echo "Build diffie hellman parameters..."
 	./build-dh
@@ -51,7 +85,7 @@ echo "Search and synchronize users with config..."
 
 userLoop=1
 userCount=1
-while [ "$userLoop" ]
+while [ $userLoop == 1 ]
 do
 	envNameUser="OPENVPN_USER_$userCount"
 	envNamePass="OPENVPN_PASS_$userCount"
@@ -79,21 +113,41 @@ do
 		echo "Certificates existing."
 	else
 		echo "Generating key..."
-		./pkitool $certificateName
-		echo "Generating key pass..."
-		./pkitool --pass $certificateName
+		./pkitool --keysize 2048 $certificateName
+		#echo "Generating key pass..."
+		#./pkitool --pass --keysize 2048 $certificateName
+		echo "Generating client config files..."
+		generateUserConfig $envValueUser
+
 		echo "Creating comprimised file for user config..."
-		tar cfvz /opt/certs/openvpn_$envValueUser.tar.gz keys/ca.crt keys/$certificateName.crt keys/$certificateName.key
+		cd keys/
+		tar cfv /opt/certs/openvpn_$envValueUser.tar ca.crt $certificateName.crt $certificateName.key
+		cd /tmp
+		tar ufv /opt/certs/openvpn_$envValueUser.tar udp1194.conf tcp443.conf
+		gzip /opt/certs/openvpn_$envValueUser.tar
+
+		cd /etc/openvpn/easy-rsa
+
 		echo "SAVED TO /opt/certs/openvpn_$envValueUser.tar.gz !"
 	fi
 	userCount=$((userCount + 1))
 done
 
+echo "Searching for hook in $dockerConfigsPath/hook/after_init.sh"
+if [ -f "$dockerConfigsPath/hook/after_init.sh" ]; then
+	echo "Execute hook..."
+	chmod +x $dockerConfigsPath/hook/after_init.sh
+	$dockerConfigsPath/hook/after_init.sh
+else
+	echo "No hook file given, continue..."
+fi
+
 # todo: add hooks and start openvpn at different ports (default configs for 443 TCP; 1194 UDP)
 cd ..
 echo "Starting openvpn servers..."
-openvpn --config udp1194.config &
-openvpn --config tcp443.config &
+echo "" > log/openvpn-status.log
+openvpn --config udp1194.conf &
+openvpn --config tcp443.conf &
 
 echo "Done!"
 tail -f log/openvpn-status.log
