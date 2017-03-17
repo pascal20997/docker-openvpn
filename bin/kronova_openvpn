@@ -7,16 +7,24 @@ function doesUserExist {
 	fi
 }
 
+dockerConfigsPath="/root/kronovanet_docker"
+if [ ! -d "$dockerConfigsPath" ]; then
+  echo "Creating folder for kronovanet docker container..."
+  mkdir -p $dockerConfigsPath
+fi
+
 cd /etc/openvpn/easy-rsa
 
-if [ -f "/INITIALIZED_OPENVPN" ]; then
+if [ ! -f "$dockerConfigsPath/INITIALIZED_OPENVPN" ]; then
 	echo "Initialize configs..."
 	echo "Preparing easy-rsa..."
-	echo "export KEY_COUNTRY=\"$EASYRSA-COUNTRY\"" >> /etc/openvpn/easy-rsa/vars
-	echo "export KEY_PROVINCE=\"$EASYRSA-PROVINCE\"" >> /etc/openvpn/easy-rsa/vars
-	echo "export KEY_COUNTRY=\"$EASYRSA-CITY\"" >> /etc/openvpn/easy-rsa/vars
-	echo "export KEY_COUNTRY=\"$EASYRSA-ORG\"" >> /etc/openvpn/easy-rsa/vars
-	echo "export KEY_COUNTRY=\"$EASYRSA-EMAIL\"" >> /etc/openvpn/easy-rsa/vars
+	echo "export KEY_COUNTRY=\"${EASYRSA_COUNTRY}\"" >> /etc/openvpn/easy-rsa/vars
+	echo "export KEY_PROVINCE=\"${EASYRSA_PROVINCE}\"" >> /etc/openvpn/easy-rsa/vars
+	echo "export KEY_CITY=\"${EASYRSA_CITY}\"" >> /etc/openvpn/easy-rsa/vars
+	echo "export KEY_ORG=\"${EASYRSA_ORG}\"" >> /etc/openvpn/easy-rsa/vars
+	echo "export KEY_EMAIL=\"${EASYRSA_EMAIL}\"" >> /etc/openvpn/easy-rsa/vars
+	echo "export KEY_OU=\"${EASYRSA_OU}\"" >> /etc/openvpn/easy-rsa/vars
+	echo "export KEY_NAME=\"${EASYRSA_NAME}\"" >> /etc/openvpn/easy-rsa/vars
 
 	mkdir keys
 	touch keys/index.txt
@@ -25,53 +33,69 @@ if [ -f "/INITIALIZED_OPENVPN" ]; then
 	./clean-all
 
 	echo "Build root certificate..."
-	export EASY_RSA="${EASY_RSA:-.}"
-	"$EASY_RSA/pkitool" --initca
+	./pkitool --initca
 
 	echo "Build server certificate..."
-	"$EASY_RSA/pkitool" --server server
+	./pkitool --server server
 
 	echo "Build diffie hellman parameters..."
 	./build-dh
 
-	touch "/INITIALIZED_OPENVPN"
+	touch "$dockerConfigsPath/INITIALIZED_OPENVPN"
 else
 	echo "Configs already initialized. If you want to reinit remove the file /INITIALIZED_OPENVPN from container!"
 fi
 
 echo "Search and synchronize users with config..."
+. ./vars
+
 userLoop=1
 userCount=1
 while [ "$userLoop" ]
 do
-	user="OPENVPN_USER_$userCount"
-	pass="OPENVPN_PASS_$userCount"
+	envNameUser="OPENVPN_USER_$userCount"
+	envNamePass="OPENVPN_PASS_$userCount"
+	envValueUser=${!envNameUser}
+	envValuePass=${!envNamePass}
 
-	if ([ -z $(env | grep ^$user\=) ] || [ -z $(env | grep ^$pass\=) ]); then
+	if ([ -z $envValueUser ] || [ -z $envValuePass ]); then
 		userLoop=0
 		continue
 	fi
 
-	echo "Checking user $user..."
-	if doesUserExist $user; then
-		echo "Adding user $user..."
-		useradd "$user" -p $pass
+	echo "Checking user $envValueUser..."
+	if doesUserExist $envValueUser; then
+		echo "Adding user $envValueUser..."
+		useradd "$envValueUser" -M -s /bin/false -p $envValuePass
 	else
 		echo "User existing."
 	fi
 
-	echo "Checking user certificates for $user..."
+	echo "Checking user certificates for $envValueUser..."
 	certificatePath="/etc/openvpn/easy-rsa/keys"
-	certificateName="user_cert_$user"
+	certificateName="user_cert_$envValueUser"
 
 	if ([ -f "$certificatePath/$certificateName.crt" ] && [ -f "$certificatePath/$certificateName.csr" ] && [ -f "$certificatePath/$certificateName.key" ]); then
 		echo "Certificates existing."
 	else
-		"$EASY_RSA/pkitool" $certificateName
+		echo "Generating key..."
+		./pkitool $certificateName
+		echo "Generating key pass..."
+		./pkitool --pass $certificateName
+		echo "Creating comprimised file for user config..."
+		tar cfvz /opt/certs/openvpn_$envValueUser.tar.gz keys/ca.crt keys/$certificateName.crt keys/$certificateName.key
+		echo "SAVED TO /opt/certs/openvpn_$envValueUser.tar.gz !"
 	fi
 	userCount=$((userCount + 1))
 done
 
 # todo: add hooks and start openvpn at different ports (default configs for 443 TCP; 1194 UDP)
+cd ..
+echo "Starting openvpn servers..."
+openvpn --config udp1194.config &
+openvpn --config tcp443.config &
+
+echo "Done!"
+tail -f log/openvpn-status.log
 
 exit
