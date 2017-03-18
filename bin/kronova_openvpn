@@ -119,16 +119,15 @@ do
 		echo "Generating client config files..."
 		generateUserConfig $envValueUser
 
-		echo "Creating comprimised file for user config..."
+		echo "Creating packed file for user config..."
 		cd keys/
 		tar cfv /opt/certs/openvpn_$envValueUser.tar ca.crt $certificateName.crt $certificateName.key
 		cd /tmp
 		tar ufv /opt/certs/openvpn_$envValueUser.tar udp1194.conf tcp443.conf
-		gzip /opt/certs/openvpn_$envValueUser.tar
 
 		cd /etc/openvpn/easy-rsa
 
-		echo "SAVED TO /opt/certs/openvpn_$envValueUser.tar.gz !"
+		echo "SAVED TO /opt/certs/openvpn_$envValueUser.tar !"
 	fi
 	userCount=$((userCount + 1))
 done
