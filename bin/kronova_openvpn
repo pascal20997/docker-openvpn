@@ -1,12 +1,4 @@
 #!/bin/bash
-function doesUserExist {
-	if id "$1" > /dev/null 2>&1; then
-		return 1
-	else
-		return 0
-	fi
-}
-
 function generateUserConfig {
 	echo "" > /tmp/udp1194.conf
 	echo "client" >> /tmp/udp1194.conf
@@ -21,6 +13,7 @@ function generateUserConfig {
 	echo "cipher AES-256-CBC" >> /tmp/udp1194.conf
 	echo "auth SHA512" >> /tmp/udp1194.conf
 	echo "verb 3" >> /tmp/udp1194.conf
+	echo "auth-user-pass" >> /tmp/udp1194.conf
     cp /tmp/udp1194.conf /tmp/tcp443.conf
 	
 	echo "dev tun1" >> /tmp/udp1194.conf
@@ -81,6 +74,7 @@ fi
 
 echo "Search and synchronize users with config..."
 . ./vars
+echo "" > /tmp/openvpn_users
 
 userLoop=1
 userCount=1
@@ -97,12 +91,8 @@ do
 	fi
 
 	echo "Checking user $envValueUser..."
-	if doesUserExist $envValueUser; then
-		echo "Adding user $envValueUser..."
-		useradd "$envValueUser" -M -s /bin/false -p $envValuePass
-	else
-		echo "User existing."
-	fi
+	echo "$envNameUser=\"$envValueUser\"" >> /tmp/openvpn_users
+	echo "$envNamePass=\"$envValuePass\"" >> /tmp/openvpn_users
 
 	echo "Checking user certificates for $envValueUser..."
 	certificatePath="/etc/openvpn/easy-rsa/keys"
@@ -113,8 +103,7 @@ do
 	else
 		echo "Generating key..."
 		./pkitool --keysize 2048 $certificateName
-		#echo "Generating key pass..."
-		#./pkitool --pass --keysize 2048 $certificateName
+
 		echo "Generating client config files..."
 		generateUserConfig $envValueUser
 
@@ -140,7 +129,6 @@ else
 	echo "No hook file given, continue..."
 fi
 
-# todo: add hooks and start openvpn at different ports (default configs for 443 TCP; 1194 UDP)
 cd ..
 echo "Starting openvpn servers..."
 echo "" > log/openvpn-status.log

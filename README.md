@@ -14,6 +14,7 @@ You can add users via environment variables. Use this structure:
 | ------------------ |:-------------:| ------------------------------------- |
 | OPENVPN\_USER\_n   | e.g. pascal   | The username while n is the indicator |
 | OPENVPN\_PASS\_n   | e.g. 123456   | The password for OPENVPN\_USER\_n     |
+| OPENVPN_HOSTNAME   | e.g. host.tld | The host name used in user config     |
 
 For example if you want to add 4 users then the first user is OPENVPN_USER_1,
 the second OPENVPN_USER_2 and so on. The same structure with OPENVPN_PASS_1.
@@ -76,9 +77,9 @@ services:
           EASYRSA_COUNTRY: "DE"
           EASYRSA__PROVINCE: "BW"
           EASYRSA_CITY: "Stuttgart"
-          EASYRSA_ORG: "kronova.net"
+          EASYRSA_ORG: "MyOrganization"
           EASYRSA_EMAIL: "your@domain.tld"
-          EASYRSA_OU: "kronova.net"
+          EASYRSA_OU: "MyOrganizationUnit"
 volumes:
     data:
       driver: local

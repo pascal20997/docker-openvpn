@@ -17,5 +17,6 @@ ENV OPENVPN_HOSTNAME localhost
 COPY ./bin /usr/local/bin/
 COPY ./config /etc/openvpn/
 RUN chmod a+x /usr/local/bin/kronova_openvpn
+RUN chmod a+x /usr/local/bin/verify_user
 
 CMD ["/usr/local/bin/kronova_openvpn"]
