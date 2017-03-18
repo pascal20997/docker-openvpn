@@ -1,0 +1,30 @@
+#!/bin/bash
+source /tmp/openvpn_users
+readarray -t lines < $1
+
+username=${lines[0]}
+password=${lines[1]}
+
+# script to verify the OpenVPN user
+userLoop=1
+userCount=1
+while [ $userLoop == 1 ]
+do
+	nameUser="OPENVPN_USER_$userCount"
+	namePass="OPENVPN_PASS_$userCount"
+	valueUser=${!nameUser}
+	valuePass=${!namePass}
+
+	if ([ -z $valueUser ] || [ -z $valuePass ]); then
+		userLoop=0
+		continue
+	fi
+
+	if ([ "$username" == "$valueUser" ] && [ "$password" == "$valuePass" ]); then
+		exit 0
+	fi
+	
+	userCount=$((userCount + 1))
+done
+
+exit 1
