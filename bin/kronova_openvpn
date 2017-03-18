@@ -60,12 +60,11 @@ if [ ! -f "$dockerConfigsPath/INITIALIZED_OPENVPN" ]; then
 	echo "export KEY_OU=\"${EASYRSA_OU}\"" >> /etc/openvpn/easy-rsa/vars
 	echo "export KEY_NAME=\"${EASYRSA_NAME}\"" >> /etc/openvpn/easy-rsa/vars
 
-	mkdir keys
+	rm -rf keys/*
 	touch keys/index.txt
 	echo 01 > keys/serial
 	. ./vars
-	./clean-all
-
+	
 	echo "Build root certificate..."
 	./pkitool --keysize 2048 --initca
 
